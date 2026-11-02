@@ -13,7 +13,15 @@ from app.gateway import execute_action
 from app.schemas import ActionRequest,AIRequest
 
 app = FastAPI(title="SecureAI Passport")
+from fastapi.middleware.cors import CORSMiddleware
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 def health_check():
