@@ -14,3 +14,7 @@ def check_permission(action: str) -> bool:
 
 def requires_approval(action: str) -> bool:
     return action in APPROVAL_REQUIRED_ACTIONS
+if ALLOWED_ACTIONS & APPROVAL_REQUIRED_ACTIONS:
+        raise ValueError(
+            "An action cannot be both allowed and approval-required"
+        )

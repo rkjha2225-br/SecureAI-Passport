@@ -1,22 +1,37 @@
 
+import logging
 import os
 import secrets
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
+
+
+logger = logging.getLogger(__name__)
+
+
+def safe_equal(first: str, second: str) -> bool:
+    """Compare secret values safely, including non-ASCII characters."""
+
+    return secrets.compare_digest(
+        first.encode("utf-8"),
+        second.encode("utf-8"),
+    )
 
 
 def require_api_key(
-    x_api_key: str = Header(default=""),
+    x_api_key: str = Header(default="", alias="X-API-Key"),
 ):
     expected_key = os.getenv("SECUREAI_API_KEY", "")
 
     if not expected_key:
+        logger.error("SECUREAI_API_KEY is not configured")
+
         raise HTTPException(
             status_code=500,
-            detail="API key is not configured on the server",
+            detail="Server authentication is not configured",
         )
 
-    if not secrets.compare_digest(x_api_key, expected_key):
+    if not safe_equal(x_api_key, expected_key):
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key",
@@ -26,10 +41,21 @@ def require_api_key(
 
 
 def require_approver(
-    authenticated: bool,
-    approver_id: str = Header(default=""),
+    authenticated: bool = Depends(require_api_key),
+    approver_token: str = Header(
+        default="",
+        alias="X-Approver-Token",
+    ),
 ):
-    expected_approver = os.getenv("SECUREAI_APPROVER_ID", "")
+    expected_token = os.getenv(
+        "SECUREAI_APPROVER_TOKEN",
+        "",
+    )
+
+    approver_id = os.getenv(
+        "SECUREAI_APPROVER_ID",
+        "",
+    )
 
     if not authenticated:
         raise HTTPException(
@@ -37,16 +63,20 @@ def require_approver(
             detail="Authentication required",
         )
 
-    if not expected_approver:
-        raise HTTPException(
-            status_code=500,
-            detail="Approver identity is not configured",
+    if not expected_token or not approver_id:
+        logger.error(
+            "Approver authentication is not configured"
         )
 
-    if not secrets.compare_digest(approver_id, expected_approver):
+        raise HTTPException(
+            status_code=500,
+            detail="Approver authentication is not configured",
+        )
+
+    if not safe_equal(approver_token, expected_token):
         raise HTTPException(
             status_code=403,
-            detail="Approver identity is invalid",
+            detail="Invalid approver token",
         )
 
     return approver_id

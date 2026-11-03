@@ -2,15 +2,40 @@
 import { useState } from "react";
 import "./App.css";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+// Safely read API responses, including non-JSON error responses.
+async function readApiResponse(response) {
+  const text = await response.text();
+
+  let data = {};
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { detail: text || "Invalid server response" };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail || `Request failed with status ${response.status}`
+    );
+  }
+
+  return data;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("Overview");
 
   const [message, setMessage] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [approverToken, setApproverToken] = useState("");
+
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState(null);
 
-  const [approverId, setApproverId] = useState("");
   const [approvals, setApprovals] = useState([]);
   const [approvalMessage, setApprovalMessage] = useState("");
 
@@ -56,6 +81,13 @@ function App() {
     return [];
   }
 
+  // Common API headers
+  function getApiHeaders() {
+    return {
+      "X-API-Key": apiKey.trim(),
+    };
+  }
+
   // Load approval requests
   async function loadApprovals() {
     if (!apiKey.trim()) {
@@ -67,21 +99,13 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/approvals",
+        `${API_BASE_URL}/approvals`,
         {
-          headers: {
-            "X-API-Key": apiKey,
-          },
+          headers: getApiHeaders(),
         }
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Could not load approvals"
-        );
-      }
+      const data = await readApiResponse(response);
 
       const records = getRecords(data, ["approvals"]);
 
@@ -98,32 +122,35 @@ function App() {
 
   // Approve or reject a request
   async function decideApproval(approvalId, decision) {
-    if (!apiKey.trim() || !approverId.trim()) {
+    if (!apiKey.trim() || !approverToken.trim()) {
       setApprovalMessage(
-        "Enter your API key and approver ID."
+        "Enter your API key and approver token."
       );
       return;
     }
 
+    if (!["approve", "reject"].includes(decision)) {
+      setApprovalMessage("Invalid approval action.");
+      return;
+    }
+
     try {
+      setApprovalMessage("Processing approval...");
+
       const response = await fetch(
-        `http://localhost:8000/approvals/${approvalId}/${decision}`,
+        `${API_BASE_URL}/approvals/${encodeURIComponent(
+          approvalId
+        )}/${decision}`,
         {
           method: "POST",
           headers: {
-            "X-API-Key": apiKey,
-            "X-Approver-ID": approverId,
+            "X-API-Key": apiKey.trim(),
+            "X-Approver-Token": approverToken.trim(),
           },
         }
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Approval action failed"
-        );
-      }
+      await readApiResponse(response);
 
       const status =
         decision === "approve" ? "approved" : "rejected";
@@ -155,26 +182,20 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/ai/execute",
+        `${API_BASE_URL}/ai/execute`,
         {
           method: "POST",
           headers: {
+            ...getApiHeaders(),
             "Content-Type": "application/json",
-            "X-API-Key": apiKey,
           },
           body: JSON.stringify({
-            user_message: message,
+            user_message: message.trim(),
           }),
         }
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Request failed"
-        );
-      }
+      const data = await readApiResponse(response);
 
       setResult(data);
       setNotice("Request processed successfully.");
@@ -196,26 +217,17 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/audit",
+        `${API_BASE_URL}/audit`,
         {
-          headers: {
-            "X-API-Key": apiKey,
-          },
+          headers: getApiHeaders(),
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "Could not load audit logs"
-        );
-      }
-
-      // Your backend returns { total, events }
       const records = data.events || [];
 
-      setAuditLogs(records);
+      setAuditLogs(Array.isArray(records) ? records : []);
       setCurrentPage(1);
 
       setAuditMessage(
@@ -237,37 +249,19 @@ function App() {
     setStatsMessage("Loading dashboard statistics...");
 
     try {
-      const headers = {
-        "X-API-Key": apiKey,
-      };
+      const headers = getApiHeaders();
 
       const [auditResponse, approvalResponse] =
         await Promise.all([
-          fetch("http://localhost:8000/audit", {
-            headers,
-          }),
-
-          fetch("http://localhost:8000/approvals", {
-            headers,
-          }),
+          fetch(`${API_BASE_URL}/audit`, { headers }),
+          fetch(`${API_BASE_URL}/approvals`, { headers }),
         ]);
 
-      const auditData = await auditResponse.json();
-      const approvalData = await approvalResponse.json();
-
-      if (!auditResponse.ok) {
-        throw new Error(
-          auditData.detail || "Could not load audit data"
-        );
-      }
-
-      if (!approvalResponse.ok) {
-        throw new Error(
-          approvalData.detail || "Could not load approval data"
-        );
-      }
+      const auditData = await readApiResponse(auditResponse);
+      const approvalData = await readApiResponse(approvalResponse);
 
       const auditRecords = auditData.events || [];
+
       const approvalRecords = getRecords(
         approvalData,
         ["approvals"]
@@ -515,6 +509,7 @@ function App() {
                     }
                     placeholder="Enter your SecureAI API key"
                     className="api-key-input"
+                    autoComplete="off"
                   />
 
                   <textarea
@@ -570,6 +565,7 @@ function App() {
                 <div className="empty-state">
                   <div className="empty-icon">✓</div>
                   <h4>Approval management</h4>
+
                   <p>
                     Review sensitive action requests in
                     the approval section.
@@ -669,15 +665,17 @@ function App() {
                   setApiKey(event.target.value)
                 }
                 placeholder="Enter API key"
+                autoComplete="off"
               />
 
               <input
-                type="text"
-                value={approverId}
+                type="password"
+                value={approverToken}
                 onChange={(event) =>
-                  setApproverId(event.target.value)
+                  setApproverToken(event.target.value)
                 }
-                placeholder="Enter Approver ID"
+                placeholder="Enter Approver Token"
+                autoComplete="off"
               />
 
             </div>
@@ -816,6 +814,9 @@ function App() {
                 <option value="all">All statuses</option>
                 <option value="executed">Executed</option>
                 <option value="denied">Denied</option>
+                <option value="approval_required">
+                  Approval Required
+                </option>
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
               </select>

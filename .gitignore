@@ -3,10 +3,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.egg-info/
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
+env/
 
 # Environment variables and secrets
 .env
@@ -17,6 +19,12 @@ venv/
 approvals.json
 audit.log
 
+# Frontend dependencies and builds
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
 # Editors
 .vscode/
 .zed/
@@ -24,3 +32,7 @@ audit.log
 # Operating system
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.tmp
+*.log

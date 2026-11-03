@@ -7,4 +7,5 @@ DEMO_RECORDS = [
 
 
 def read_demo_records():
-    return DEMO_RECORDS
+    # Return copies so the original records cannot be modified accidentally.
+    return [record.copy() for record in DEMO_RECORDS]
